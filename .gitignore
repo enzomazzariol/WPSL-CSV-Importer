@@ -1,0 +1,17 @@
+# Plugin backup zips
+*.zip
+
+# macOS
+.DS_Store
+._*
+
+# Internal planning / memory (no va al repo público)
+memory/
+CLAUDE.md
+
+# Composer (por si se agrega en el futuro)
+vendor/
+composer.lock
+
+# Node (por si se agrega en el futuro)
+node_modules/
