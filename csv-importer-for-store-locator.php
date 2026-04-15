@@ -56,6 +56,22 @@ function wpsl_csv_importer_uninstall() {
 // WordPress loads translations automatically for hosted plugins (WP 4.6+).
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PLUGIN ROW META (donate link in plugins list)
+// ─────────────────────────────────────────────────────────────────────────────
+
+add_filter( 'plugin_row_meta', 'wpsl_csv_plugin_row_meta', 10, 2 );
+
+function wpsl_csv_plugin_row_meta( $links, $file ) {
+	if ( plugin_basename( __FILE__ ) !== $file ) {
+		return $links;
+	}
+	$links[] = '<a href="https://buymeacoffee.com/mazzariolem" target="_blank" rel="noopener noreferrer">'
+		. esc_html__( 'Buy me a coffee', 'csv-importer-for-store-locator' )
+		. '</a>';
+	return $links;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // DEPENDENCY NOTICE
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -507,6 +523,16 @@ function wpsl_csv_importer_page() {
 			}
 			?>
 		</div>
+
+		<p style="margin-top:24px;color:#666;font-size:12px;">
+			<?php
+			printf(
+				/* translators: %s: Buy Me a Coffee link */
+				esc_html__( 'If this plugin saves you time, consider %s — it helps keep it maintained and free.', 'csv-importer-for-store-locator' ),
+				'<a href="https://buymeacoffee.com/mazzariolem" target="_blank" rel="noopener noreferrer">' . esc_html__( 'buying me a coffee', 'csv-importer-for-store-locator' ) . '</a>'
+			);
+			?>
+		</p>
 	</div>
 	<?php
 }
