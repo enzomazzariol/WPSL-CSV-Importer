@@ -580,9 +580,9 @@ function wpsl_csv_tab_import() {
 						<th><label for="wpsl_csv_url"><?php esc_html_e( 'CSV URL', 'wpsl-csv-importer' ); ?></label></th>
 						<td>
 							<input type="url" id="wpsl_csv_url" name="wpsl_csv_url" class="large-text"
-								placeholder="https://docs.google.com/spreadsheets/d/…/export?format=csv">
+								placeholder="https://docs.google.com/spreadsheets/d/…/edit">
 							<p class="description">
-								<?php esc_html_e( 'Paste a public URL returning a CSV file. Works with Google Sheets → File → Share → Publish to web → CSV.', 'wpsl-csv-importer' ); ?>
+								<?php esc_html_e( 'Paste a public CSV URL or a Google Sheets link — both the edit URL and the export URL are accepted. The spreadsheet must be shared publicly (anyone with the link can view).', 'wpsl-csv-importer' ); ?>
 							</p>
 						</td>
 					</tr>
@@ -724,16 +724,44 @@ function wpsl_csv_tab_import() {
 			</div>
 
 			<!-- CSV format reference -->
-			<div class="wpsl-card" style="background:#fff3cd;border-color:#ffc107;">
+			<div class="wpsl-card" style="background:#f0f6fc;border-color:#72aee6;">
 				<h3 style="margin-top:0;"><?php esc_html_e( 'CSV Format', 'wpsl-csv-importer' ); ?></h3>
-				<p style="margin-bottom:8px;"><?php esc_html_e( 'Example headers:', 'wpsl-csv-importer' ); ?></p>
-				<code style="display:block;font-size:11px;background:#fff;padding:8px;border-radius:3px;">Name,Address,City,State,ZipCode,Phone,Email,Website,Category</code>
-				<p style="margin-top:12px;margin-bottom:0;font-size:13px;">
-					&bull; <?php esc_html_e( 'Comma or semicolon separated.', 'wpsl-csv-importer' ); ?><br>
-					&bull; <?php esc_html_e( 'UTF-8 encoding recommended.', 'wpsl-csv-importer' ); ?><br>
-					&bull; <?php esc_html_e( 'NULL values are imported as empty.', 'wpsl-csv-importer' ); ?><br>
-					&bull; <?php esc_html_e( 'Multiple categories: separate with |', 'wpsl-csv-importer' ); ?>
+
+				<p style="margin:0 0 4px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:#50575e;">
+					<?php esc_html_e( 'Required', 'wpsl-csv-importer' ); ?>
 				</p>
+				<code style="display:block;font-size:11px;background:#fff;padding:7px 10px;border-radius:3px;border:1px solid #c3d4e4;margin-bottom:10px;word-break:break-all;">Name, Address, City, State, ZipCode</code>
+
+				<p style="margin:0 0 4px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:#50575e;">
+					<?php esc_html_e( 'Optional', 'wpsl-csv-importer' ); ?>
+				</p>
+				<code style="display:block;font-size:11px;background:#fff;padding:7px 10px;border-radius:3px;border:1px solid #c3d4e4;margin-bottom:12px;word-break:break-all;">Country, Phone, Fax, Email, Website, Lat, Lng, Category</code>
+
+				<ul style="margin:0 0 14px;padding-left:1.3em;font-size:12px;line-height:1.9;color:#2c3338;">
+					<li><?php esc_html_e( 'Comma or semicolon — auto-detected.', 'wpsl-csv-importer' ); ?></li>
+					<li><?php esc_html_e( 'UTF-8 recommended (Excel BOM supported).', 'wpsl-csv-importer' ); ?></li>
+					<li><?php esc_html_e( 'Multiple categories: separate with |', 'wpsl-csv-importer' ); ?></li>
+					<li><?php esc_html_e( 'Lat/Lng columns skip geocoding.', 'wpsl-csv-importer' ); ?></li>
+				</ul>
+
+				<?php
+				$sample_rows = array(
+					array( 'Name', 'Address', 'City', 'State', 'ZipCode', 'Country', 'Phone', 'Email', 'Website', 'Category' ),
+					array( 'Example Store', '123 Main St', 'Springfield', 'IL', '62701', 'United States', '555-0100', 'info@example.com', 'https://example.com', 'Retail' ),
+					array( 'Another Store', '456 Oak Ave', 'Shelbyville', 'IL', '62565', 'United States', '555-0200', '', 'https://another.com', 'Retail|Pharmacy' ),
+				);
+				$sample_csv = '';
+				foreach ( $sample_rows as $row ) {
+					$sample_csv .= implode( ',', array_map( function( $v ) {
+						return strpos( $v, ',' ) !== false ? '"' . $v . '"' : $v;
+					}, $row ) ) . "\r\n";
+				}
+				$sample_uri = 'data:text/csv;charset=utf-8,' . rawurlencode( $sample_csv );
+				?>
+				<a href="<?php echo esc_attr( $sample_uri ); ?>" download="wpsl-sample.csv"
+				   style="display:inline-flex;align-items:center;gap:5px;font-size:12px;text-decoration:none;color:#2271b1;font-weight:500;border:1px solid #2271b1;border-radius:3px;padding:4px 10px;">
+					&#x21E9; <?php esc_html_e( 'Download sample CSV', 'wpsl-csv-importer' ); ?>
+				</a>
 			</div>
 
 		</div>
@@ -1404,7 +1432,7 @@ function wpsl_csv_find_store( $title, $address ) {
 		array(
 			'post_type'              => 'wpsl_stores',
 			'title'                  => $title,
-			'post_status'            => 'any',
+			'post_status'            => array( 'publish', 'draft', 'pending', 'private', 'future' ),
 			'posts_per_page'         => -1,
 			'no_found_rows'          => true,
 			'update_post_term_cache' => false,
@@ -1462,6 +1490,16 @@ function wpsl_csv_process_row( array $fields, $duplicate_mode ) {
 	$category_value = $fields['_category'] ?? '';
 	unset( $fields['_category'] );
 
+	// Validate required fields at row level — the column mapping guarantees the
+	// columns exist, but individual rows can still have empty values.
+	$required = array( 'post_title', 'wpsl_address', 'wpsl_city', 'wpsl_state', 'wpsl_zip' );
+	foreach ( $required as $req_key ) {
+		if ( empty( $fields[ $req_key ] ) ) {
+			$result['skipped']++;
+			return $result;
+		}
+	}
+
 	$existing_id = wpsl_csv_find_store( $fields['post_title'], $fields['wpsl_address'] ?? '' );
 
 	// SKIP
@@ -1484,8 +1522,9 @@ function wpsl_csv_process_row( array $fields, $duplicate_mode ) {
 			true
 		);
 
-		if ( is_wp_error( $update ) ) {
-			$result['error'] = 'Error updating "' . esc_html( $fields['post_title'] ) . '": ' . $update->get_error_message();
+		if ( is_wp_error( $update ) || 0 === $update ) {
+			$result['error'] = 'Error updating "' . esc_html( $fields['post_title'] ) . '": '
+				. ( is_wp_error( $update ) ? $update->get_error_message() : 'unknown error' );
 			return $result;
 		}
 
@@ -1520,8 +1559,9 @@ function wpsl_csv_process_row( array $fields, $duplicate_mode ) {
 		true
 	);
 
-	if ( is_wp_error( $post_id ) ) {
-		$result['error'] = 'Error inserting "' . esc_html( $fields['post_title'] ) . '": ' . $post_id->get_error_message();
+	if ( is_wp_error( $post_id ) || 0 === $post_id ) {
+		$result['error'] = 'Error inserting "' . esc_html( $fields['post_title'] ) . '": '
+			. ( is_wp_error( $post_id ) ? $post_id->get_error_message() : 'unknown error' );
 		return $result;
 	}
 
@@ -1557,8 +1597,17 @@ function wpsl_csv_assign_category( $post_id, $input ) {
 		if ( ! $term ) {
 			$term = wp_insert_term( $name, 'wpsl_store_category' );
 		}
-		if ( ! is_wp_error( $term ) && ! empty( $term['term_id'] ) ) {
-			$term_ids[] = (int) $term['term_id'];
+		if ( is_wp_error( $term ) ) {
+			// Term may have been inserted by a concurrent request; try fetching it.
+			$existing = get_term_by( 'name', $name, 'wpsl_store_category' );
+			if ( $existing ) {
+				$term_ids[] = (int) $existing->term_id;
+			}
+			continue;
+		}
+		$term_id = is_array( $term ) ? ( $term['term_id'] ?? 0 ) : (int) $term;
+		if ( $term_id ) {
+			$term_ids[] = (int) $term_id;
 		}
 	}
 
@@ -1618,6 +1667,70 @@ function wpsl_csv_get_store_stats() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// HELPERS: UPLOAD ERROR MESSAGES
+// ─────────────────────────────────────────────────────────────────────────────
+
+function wpsl_csv_upload_error_message( $code ) {
+	$messages = array(
+		UPLOAD_ERR_INI_SIZE   => sprintf(
+			/* translators: %s: php.ini upload size limit */
+			__( 'File exceeds the server upload limit (%s). Ask your host to increase upload_max_filesize.', 'wpsl-csv-importer' ),
+			ini_get( 'upload_max_filesize' )
+		),
+		UPLOAD_ERR_FORM_SIZE  => __( 'File exceeds the form size limit.', 'wpsl-csv-importer' ),
+		UPLOAD_ERR_PARTIAL    => __( 'File was only partially uploaded. Please try again.', 'wpsl-csv-importer' ),
+		UPLOAD_ERR_NO_FILE    => __( 'No file was selected.', 'wpsl-csv-importer' ),
+		UPLOAD_ERR_NO_TMP_DIR => __( 'Server temporary folder is missing. Contact your host.', 'wpsl-csv-importer' ),
+		UPLOAD_ERR_CANT_WRITE => __( 'Server failed to write the file to disk. Check server permissions.', 'wpsl-csv-importer' ),
+		UPLOAD_ERR_EXTENSION  => __( 'A PHP extension blocked the upload.', 'wpsl-csv-importer' ),
+	);
+	return $messages[ $code ] ?? sprintf(
+		/* translators: %d: PHP upload error code */
+		__( 'Upload failed (error code %d).', 'wpsl-csv-importer' ),
+		$code
+	);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPERS: GOOGLE SHEETS URL CONVERSION
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * If the URL is a Google Sheets edit/view/pub URL, converts it to a direct
+ * CSV export URL. Returns the URL unchanged for anything else.
+ */
+function wpsl_csv_maybe_convert_google_sheets_url( $url ) {
+	if ( strpos( $url, 'docs.google.com/spreadsheets' ) === false ) {
+		return $url;
+	}
+	// Already a CSV export URL — leave it alone.
+	if ( strpos( $url, '/export' ) !== false && strpos( $url, 'format=csv' ) !== false ) {
+		return $url;
+	}
+
+	// Extract spreadsheet ID.
+	if ( ! preg_match( '#/spreadsheets/d/([a-zA-Z0-9_-]+)#', $url, $id_match ) ) {
+		return $url;
+	}
+	$spreadsheet_id = $id_match[1];
+
+	// Extract sheet GID from query string (?gid=) or fragment (#gid=).
+	$gid    = '0';
+	$parsed = wp_parse_url( $url );
+	if ( ! empty( $parsed['query'] ) ) {
+		parse_str( $parsed['query'], $query_params );
+		if ( isset( $query_params['gid'] ) ) {
+			$gid = $query_params['gid'];
+		}
+	}
+	if ( ! empty( $parsed['fragment'] ) && preg_match( '/gid=(\d+)/', $parsed['fragment'], $frag_match ) ) {
+		$gid = $frag_match[1];
+	}
+
+	return 'https://docs.google.com/spreadsheets/d/' . rawurlencode( $spreadsheet_id ) . '/export?format=csv&gid=' . rawurlencode( $gid );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // AJAX: INIT IMPORT  (upload file, validate, return batch_id + total)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1659,6 +1772,9 @@ function wpsl_csv_ajax_import_init() {
 			wp_send_json_error( array( 'message' => __( 'Invalid URL. Please enter a valid http:// or https:// URL.', 'wpsl-csv-importer' ) ) );
 		}
 
+		// Auto-convert Google Sheets edit/view URLs to direct CSV export URLs.
+		$url = wpsl_csv_maybe_convert_google_sheets_url( $url );
+
 		$response = wp_remote_get( $url, array( 'timeout' => 60 ) );
 
 		if ( is_wp_error( $response ) ) {
@@ -1678,6 +1794,24 @@ function wpsl_csv_ajax_import_init() {
 			) ) );
 		}
 
+		// Reject responses that are clearly not CSV (e.g. HTML error pages).
+		$content_type = wp_remote_retrieve_header( $response, 'content-type' );
+		$allowed_types = array( 'text/csv', 'text/plain', 'application/csv', 'application/octet-stream' );
+		$type_ok = empty( $content_type ); // If no header, give benefit of the doubt.
+		foreach ( $allowed_types as $allowed ) {
+			if ( strpos( $content_type, $allowed ) !== false ) {
+				$type_ok = true;
+				break;
+			}
+		}
+		if ( ! $type_ok ) {
+			wp_send_json_error( array( 'message' => sprintf(
+				/* translators: %s: content-type returned by the server */
+				__( 'The URL did not return a CSV file (server responded with "%s"). Make sure the file is publicly accessible and the URL points directly to a CSV.', 'wpsl-csv-importer' ),
+				esc_html( strtok( $content_type, ';' ) )
+			) ) );
+		}
+
 		$body = wp_remote_retrieve_body( $response );
 		if ( empty( $body ) ) {
 			wp_send_json_error( array( 'message' => __( 'No data received from URL.', 'wpsl-csv-importer' ) ) );
@@ -1694,7 +1828,7 @@ function wpsl_csv_ajax_import_init() {
 		// ── File upload ──────────────────────────────────────────────────
 		if ( empty( $_FILES['wpsl_csv_file']['tmp_name'] ) || $_FILES['wpsl_csv_file']['error'] !== UPLOAD_ERR_OK ) {
 			$code = (int) ( $_FILES['wpsl_csv_file']['error'] ?? 0 );
-			wp_send_json_error( array( 'message' => sprintf( __( 'Upload error (code %d).', 'wpsl-csv-importer' ), $code ) ) );
+			wp_send_json_error( array( 'message' => wpsl_csv_upload_error_message( $code ) ) );
 		}
 
 		$file = $_FILES['wpsl_csv_file'];
@@ -2028,7 +2162,8 @@ function wpsl_csv_ajax_get_headers() {
 	}
 
 	if ( empty( $_FILES['wpsl_csv_preview']['tmp_name'] ) || $_FILES['wpsl_csv_preview']['error'] !== UPLOAD_ERR_OK ) {
-		wp_send_json_error( array( 'message' => __( 'No file uploaded.', 'wpsl-csv-importer' ) ) );
+		$code = (int) ( $_FILES['wpsl_csv_preview']['error'] ?? 0 );
+		wp_send_json_error( array( 'message' => wpsl_csv_upload_error_message( $code ) ) );
 	}
 
 	$tmp = $_FILES['wpsl_csv_preview']['tmp_name'];
@@ -2125,6 +2260,32 @@ function wpsl_csv_ajax_bulk_delete() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// AJAX: CANCEL BATCH  (dry-run cancel — cleans up temp file + transient)
+// ─────────────────────────────────────────────────────────────────────────────
+
+add_action( 'wp_ajax_wpsl_csv_cancel_batch', 'wpsl_csv_ajax_cancel_batch' );
+
+function wpsl_csv_ajax_cancel_batch() {
+	check_ajax_referer( 'wpsl_csv_ajax', 'security' );
+	if ( ! current_user_can( 'manage_options' ) ) {
+		wp_send_json_error();
+	}
+
+	$batch_id = sanitize_key( $_POST['batch_id'] ?? '' );
+	if ( ! $batch_id ) {
+		wp_send_json_success();
+	}
+
+	$batch = get_transient( 'wpsl_csv_batch_' . $batch_id );
+	if ( $batch && ! empty( $batch['file'] ) && (int) $batch['user_id'] === get_current_user_id() ) {
+		wp_delete_file( $batch['file'] );
+	}
+	delete_transient( 'wpsl_csv_batch_' . $batch_id );
+
+	wp_send_json_success();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // AJAX: BULK RE-GEOCODE
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -2175,8 +2336,10 @@ function wpsl_csv_ajax_bulk_regeocod() {
 	foreach ( $chunk as $id ) {
 		delete_post_meta( (int) $id, 'wpsl_lat' );
 		delete_post_meta( (int) $id, 'wpsl_lng' );
-		wp_update_post( array( 'ID' => (int) $id, 'post_status' => 'publish' ) );
-		$processed++;
+		$updated = wp_update_post( array( 'ID' => (int) $id, 'post_status' => 'publish' ) );
+		if ( $updated && ! is_wp_error( $updated ) ) {
+			$processed++;
+		}
 	}
 
 	$next_offset = $offset + $processed;
@@ -2474,9 +2637,11 @@ $("#wpsl-dryrun-confirm").on("click", function() {
 
 $("#wpsl-dryrun-cancel").on("click", function() {
     $("#wpsl-dryrun-overlay").hide();
+    if (_pendingBatchId) {
+        $.post(cfg.ajaxurl, { action: "wpsl_csv_cancel_batch", security: cfg.nonce, batch_id: _pendingBatchId });
+    }
     _pendingBatchId = null;
     _pendingTotal   = 0;
-    // Temp file expires naturally after 2h
 });
 
 /* ── Preview form ────────────────────────────────────────────────────────── */
