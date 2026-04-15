@@ -3,7 +3,7 @@ Contributors: enzomazzariol
 Tags: wp store locator, wpsl, csv, import, stores, locations, bulk import
 Requires at least: 5.6
 Tested up to: 6.7
-Stable tag: 1.2.0
+Stable tag: 2.0.0
 Requires PHP: 7.4
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -102,7 +102,26 @@ Use the **Preview CSV columns** tool in the sidebar — upload your file and the
 2. Real-time progress bar during a large CSV import.
 3. Export and preview tools in the sidebar.
 
+== Privacy ==
+
+This plugin does not collect or transmit any personal data.
+
+If you use the **Import from URL** option, the plugin makes a server-side HTTP request to the URL you provide in order to download the CSV file. No data is sent to third parties by the plugin itself; the request goes directly from your WordPress server to the URL you specify.
+
 == Changelog ==
+
+= 2.0.0 =
+* New: Import from URL — paste a public CSV URL (e.g. Google Sheets) and the plugin downloads it server-side.
+* New: Dry run / Import Preview — see which stores would be inserted, updated, or skipped before committing.
+* New: Export filters — filter by category, state, or ungeocoded stores before downloading.
+* New: Bulk delete by category.
+* New: Re-geocode stores without coordinates — clears and re-publishes stores so WPSL geocodes them automatically.
+* New: Store statistics dashboard (total stores, ungeocoded count, categories, corrupt records).
+* Improvement: Chunked import now uses byte-offset seeking — eliminates O(N²) row scanning on large files.
+* Improvement: All JS strings are now fully translatable via wp_localize_script.
+* Fix: Chunk size cap raised to 500 to match the Settings UI.
+* Fix: Replaced all direct `file_put_contents` calls with WP_Filesystem API.
+* Fix: Replaced all `@unlink` and `@mkdir` calls with proper WP file helpers.
 
 = 1.2.0 =
 * New: AJAX-powered chunked import with real-time progress bar — no more timeouts on large files.
