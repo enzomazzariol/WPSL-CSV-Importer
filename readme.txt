@@ -1,8 +1,8 @@
-=== WPSL CSV Importer ===
+=== CSV Importer for Store Locator ===
 Contributors: enzomazzariol
-Tags: wp store locator, wpsl, csv, import, stores, locations, bulk import
+Tags: csv, import, stores, wp store locator, wpsl
 Requires at least: 5.6
-Tested up to: 6.7
+Tested up to: 6.8
 Stable tag: 2.0.0
 Requires PHP: 7.4
 License: GPL-2.0-or-later
@@ -12,7 +12,7 @@ Import store locations from CSV files into WP Store Locator — with real-time p
 
 == Description ==
 
-**WPSL CSV Importer** is the easiest way to bulk-import store locations into [WP Store Locator](https://wordpress.org/plugins/wp-store-locator/) without touching the file manager or writing code.
+**CSV Importer for Store Locator** is the easiest way to bulk-import store locations into [WP Store Locator](https://wordpress.org/plugins/wp-store-locator/) without touching the file manager or writing code.
 
 Upload any CSV file and the plugin handles the rest: it detects your delimiter automatically, maps your columns to WPSL fields, and imports thousands of stores in real time with a progress bar — without PHP timeouts.
 
@@ -55,7 +55,7 @@ If your CSV has no Country column, type a fixed value (e.g. `United States`) in 
 
 1. Upload the `wpsl-csv-importer` folder to the `/wp-content/plugins/` directory, or install directly through the WordPress plugin screen.
 2. Activate the plugin through the **Plugins** screen in WordPress.
-3. Go to **WP Store Locator → CSV Importer** (or **WPSL CSV Importer** in the main menu if WPSL is not active).
+3. Go to **WP Store Locator → CSV Importer** (or **CSV Importer for Store Locator** in the main menu if WPSL is not active).
 4. Upload your CSV file, map the column names, and click **Import now**.
 
 == Frequently Asked Questions ==
