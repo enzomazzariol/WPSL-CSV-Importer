@@ -2,7 +2,7 @@
 Contributors: enzomazzariol
 Tags: csv, import, stores, wp store locator, wpsl
 Requires at least: 5.6
-Tested up to: 6.8
+Tested up to: 6.7
 Stable tag: 2.0.0
 Requires PHP: 7.4
 License: GPL-2.0-or-later

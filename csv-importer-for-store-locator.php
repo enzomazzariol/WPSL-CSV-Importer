@@ -1773,7 +1773,7 @@ function wpsl_csv_ajax_import_init() {
 
 	if ( $source === 'url' ) {
 		// ── URL import ───────────────────────────────────────────────────
-		$url = esc_url_raw( trim( wp_unslash( $_POST['wpsl_csv_url'] ?? '' ) ) );
+		$url = esc_url_raw( trim( wp_unslash( $_POST['wpsl_csv_url'] ?? '' ) ) ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- esc_url_raw() is the correct URL sanitization function
 
 		if ( empty( $url ) ) {
 			wp_send_json_error( array( 'message' => __( 'Please enter a URL.', 'csv-importer-for-store-locator' ) ) );
@@ -1856,36 +1856,46 @@ function wpsl_csv_ajax_import_init() {
 		}
 	}
 
-	// Detect delimiter — phpcs:disable WordPress.WP.AlternativeFunctions.file_system_operations_fopen,WordPress.WP.AlternativeFunctions.file_system_operations_fclose,WordPress.WP.AlternativeFunctions.file_system_operations_fread
-	$fh         = fopen( $dest, 'r' );
-	$first_line = fgets( $fh );
-	fclose( $fh );
-	$delimiter = ( substr_count( $first_line, ';' ) > substr_count( $first_line, ',' ) ) ? ';' : ',';
-
-	// Open + handle BOM
-	$fh  = fopen( $dest, 'r' );
-	$bom = fread( $fh, 3 );
-	if ( $bom !== "\xEF\xBB\xBF" ) {
-		rewind( $fh );
+	// Detect delimiter, BOM, headers, and row count via WP_Filesystem (no direct file handles needed).
+	if ( empty( $wp_filesystem ) ) {
+		require_once ABSPATH . 'wp-admin/includes/file.php';
+		WP_Filesystem();
+		global $wp_filesystem;
 	}
 
-	$headers = fgetcsv( $fh, 0, $delimiter );
-	if ( ! $headers ) {
-		fclose( $fh );
-		// phpcs:enable WordPress.WP.AlternativeFunctions.file_system_operations_fopen,WordPress.WP.AlternativeFunctions.file_system_operations_fclose,WordPress.WP.AlternativeFunctions.file_system_operations_fread
+	$raw = $wp_filesystem->get_contents( $dest );
+	if ( $raw === false || $raw === '' ) {
 		wp_delete_file( $dest );
 		wp_send_json_error( array( 'message' => __( 'Could not read CSV headers.', 'csv-importer-for-store-locator' ) ) );
 	}
-	$headers         = array_map( 'trim', $headers );
-	$data_start_byte = ftell( $fh );
 
-	// Count rows
-	$total = 0;
-	while ( fgetcsv( $fh, 0, $delimiter ) !== false ) {
-		$total++;
+	// Strip UTF-8 BOM if present and record its byte length.
+	$bom_length = 0;
+	if ( substr( $raw, 0, 3 ) === "\xEF\xBB\xBF" ) {
+		$bom_length = 3;
+		$raw        = substr( $raw, 3 );
 	}
-	fclose( $fh );
-	// phpcs:enable WordPress.WP.AlternativeFunctions.file_system_operations_fopen,WordPress.WP.AlternativeFunctions.file_system_operations_fclose,WordPress.WP.AlternativeFunctions.file_system_operations_fread
+
+	// Detect delimiter from first line.
+	$eol_pos    = strcspn( $raw, "\r\n" );
+	$first_line = substr( $raw, 0, $eol_pos );
+	$delimiter  = ( substr_count( $first_line, ';' ) > substr_count( $first_line, ',' ) ) ? ';' : ',';
+
+	// Parse headers using str_getcsv (no file handle required).
+	$headers = str_getcsv( $first_line, $delimiter );
+	if ( ! $headers || ( count( $headers ) === 1 && '' === trim( $headers[0] ) ) ) {
+		wp_delete_file( $dest );
+		wp_send_json_error( array( 'message' => __( 'Could not read CSV headers.', 'csv-importer-for-store-locator' ) ) );
+	}
+	$headers = array_map( 'trim', $headers );
+
+	// Calculate the byte offset where data rows start (used by the chunk handler for fseek).
+	$eol_len         = ( substr( $raw, $eol_pos, 2 ) === "\r\n" ) ? 2 : 1;
+	$data_start_byte = $bom_length + $eol_pos + $eol_len;
+
+	// Count data rows.
+	$data_raw = substr( $raw, $eol_pos + $eol_len );
+	$total    = count( preg_split( '/\r\n|\r|\n/', $data_raw, -1, PREG_SPLIT_NO_EMPTY ) );
 
 	// Build and validate map
 	$map        = wpsl_csv_build_map( $_POST );
