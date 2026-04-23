@@ -1568,10 +1568,21 @@ function wpsl_csv_process_row( array $fields, $duplicate_mode ) {
 			if ( $meta_key === 'post_title' ) {
 				continue;
 			}
+			if ( $meta_key === 'wpsl_lat' || $meta_key === 'wpsl_lng' ) {
+				$coord = (float) str_replace( ',', '.', $meta_val );
+				if ( $coord != 0.0 ) {
+					update_post_meta( $existing_id, $meta_key, $coord );
+				}
+				continue;
+			}
 			update_post_meta( $existing_id, $meta_key, sanitize_text_field( $meta_val ) );
 		}
 
 		if ( $address_changed && empty( $fields['wpsl_lat'] ) ) {
+			delete_post_meta( $existing_id, 'wpsl_lat' );
+			delete_post_meta( $existing_id, 'wpsl_lng' );
+		}
+		if ( (float) get_post_meta( $existing_id, 'wpsl_lat', true ) === 0.0 ) {
 			delete_post_meta( $existing_id, 'wpsl_lat' );
 			delete_post_meta( $existing_id, 'wpsl_lng' );
 		}
@@ -1603,6 +1614,13 @@ function wpsl_csv_process_row( array $fields, $duplicate_mode ) {
 
 	foreach ( $fields as $meta_key => $meta_val ) {
 		if ( $meta_key === 'post_title' ) {
+			continue;
+		}
+		if ( $meta_key === 'wpsl_lat' || $meta_key === 'wpsl_lng' ) {
+			$coord = (float) str_replace( ',', '.', $meta_val );
+			if ( $coord != 0.0 ) {
+				update_post_meta( $post_id, $meta_key, $coord );
+			}
 			continue;
 		}
 		update_post_meta( $post_id, $meta_key, sanitize_text_field( $meta_val ) );
