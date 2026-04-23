@@ -39,6 +39,68 @@ function wpsl_csv_get_settings() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// GEOCODING HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+function wpsl_csv_get_server_api_key() {
+	$settings = get_option( 'wpsl_settings', array() );
+	// WPSL 2.x separates server and browser keys; fall back to older key names.
+	return $settings['api_server_key']
+		?? $settings['api_browser_key']
+		?? $settings['api_key']
+		?? '';
+}
+
+/**
+ * Geocode a plain-text address via the Google Maps Geocoding API.
+ *
+ * @param  string $address Full address string.
+ * @return array{lat: float, lng: float}|false Coordinates or false on failure.
+ */
+function wpsl_csv_geocode_address( $address ) {
+	$api_key = wpsl_csv_get_server_api_key();
+	if ( empty( $api_key ) || '' === trim( $address ) ) {
+		return false;
+	}
+
+	$response = wp_remote_get(
+		'https://maps.googleapis.com/maps/api/geocode/json?' . http_build_query( array(
+			'address' => $address,
+			'key'     => $api_key,
+		) ),
+		array( 'timeout' => 10 )
+	);
+
+	if ( is_wp_error( $response ) ) {
+		return false;
+	}
+
+	$data = json_decode( wp_remote_retrieve_body( $response ), true );
+
+	if ( empty( $data['results'][0]['geometry']['location'] ) || 'OK' !== ( $data['status'] ?? '' ) ) {
+		return false;
+	}
+
+	return array(
+		'lat' => (float) $data['results'][0]['geometry']['location']['lat'],
+		'lng' => (float) $data['results'][0]['geometry']['location']['lng'],
+	);
+}
+
+/**
+ * Build a geocodable address string from stored post meta.
+ */
+function wpsl_csv_build_geocode_address( $post_id ) {
+	return implode( ', ', array_filter( array(
+		get_post_meta( $post_id, 'wpsl_address', true ),
+		get_post_meta( $post_id, 'wpsl_city',    true ),
+		get_post_meta( $post_id, 'wpsl_state',   true ),
+		get_post_meta( $post_id, 'wpsl_zip',     true ),
+		get_post_meta( $post_id, 'wpsl_country', true ),
+	) ) );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // UNINSTALL HOOK
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -180,8 +242,8 @@ function wpsl_csv_importer_enqueue_scripts( $hook ) {
 				'select_category'    => __( 'Please select a category first.', 'csv-importer-for-store-locator' ),
 				'deleting'           => __( 'Deleting\u2026', 'csv-importer-for-store-locator' ),
 				'deleted'            => __( 'store(s) deleted', 'csv-importer-for-store-locator' ),
-				'regeocoding'        => __( 'Triggering re-geocoding\u2026', 'csv-importer-for-store-locator' ),
-				'regeocod_done'      => __( 'Done. WPSL will geocode these stores shortly.', 'csv-importer-for-store-locator' ),
+				'regeocoding'        => __( 'Geocoding via Google Maps API\u2026', 'csv-importer-for-store-locator' ),
+				'regeocod_done'      => __( 'Done. Coordinates have been saved \u2014 stores will now appear on the map.', 'csv-importer-for-store-locator' ),
 				'no_ungeocoded'      => __( 'No ungeocoded stores found.', 'csv-importer-for-store-locator' ),
 				'select_file'        => __( 'Please select a CSV file.', 'csv-importer-for-store-locator' ),
 				'enter_url'          => __( 'Please enter a URL.', 'csv-importer-for-store-locator' ),
@@ -677,6 +739,30 @@ function wpsl_csv_tab_import() {
 						</td>
 					</tr>
 
+					<!-- Auto-geocode -->
+					<tr>
+						<th><?php esc_html_e( 'Geocoding', 'csv-importer-for-store-locator' ); ?></th>
+						<td>
+							<?php $has_api_key = ! empty( wpsl_csv_get_server_api_key() ); ?>
+							<label>
+								<input type="checkbox" name="auto_geocode" value="1"
+									<?php disabled( ! $has_api_key ); ?>>
+								<?php esc_html_e( 'Auto-geocode addresses without coordinates', 'csv-importer-for-store-locator' ); ?>
+							</label>
+							<p class="description">
+								<?php if ( $has_api_key ) : ?>
+									<?php esc_html_e( 'Calls the Google Maps Geocoding API for each store that has no lat/lng in the CSV. Recommended chunk size: 5–10 in Settings to avoid PHP timeouts.', 'csv-importer-for-store-locator' ); ?>
+								<?php else : ?>
+									<?php printf(
+										/* translators: %s: link to WPSL settings */
+										esc_html__( 'Requires a Google Maps server key configured in %s.', 'csv-importer-for-store-locator' ),
+										'<a href="' . esc_url( admin_url( 'admin.php?page=wpsl_settings' ) ) . '">' . esc_html__( 'WP Store Locator → Settings', 'csv-importer-for-store-locator' ) . '</a>'
+									); ?>
+								<?php endif; ?>
+							</p>
+						</td>
+					</tr>
+
 					<!-- Dry run -->
 					<tr>
 						<th><?php esc_html_e( 'Dry run', 'csv-importer-for-store-locator' ); ?></th>
@@ -1013,13 +1099,23 @@ function wpsl_csv_tab_manage() {
 				<hr class="wpsl-bulk-sep">
 
 				<!-- Re-geocode ungeocoded -->
-				<p style="margin-bottom:6px;font-weight:500;"><?php esc_html_e( 'Re-geocode stores without coordinates', 'csv-importer-for-store-locator' ); ?></p>
+				<p style="margin-bottom:6px;font-weight:500;"><?php esc_html_e( 'Geocode stores without coordinates', 'csv-importer-for-store-locator' ); ?></p>
 				<p style="font-size:13px;color:#50575e;margin-top:0;">
-					<?php esc_html_e( 'Clears lat/lng from stores that have no coordinates and re-publishes them so WPSL re-geocodes them. Rate limits may apply.', 'csv-importer-for-store-locator' ); ?>
+					<?php
+					if ( ! empty( wpsl_csv_get_server_api_key() ) ) {
+						esc_html_e( 'Calls the Google Maps Geocoding API server-side and saves coordinates directly. Processes 5 stores per request. Rate limits may apply.', 'csv-importer-for-store-locator' );
+					} else {
+						printf(
+							/* translators: %s: link to WPSL settings */
+							esc_html__( 'Requires a Google Maps server key in %s.', 'csv-importer-for-store-locator' ),
+							'<a href="' . esc_url( admin_url( 'admin.php?page=wpsl_settings' ) ) . '">' . esc_html__( 'WP Store Locator → Settings', 'csv-importer-for-store-locator' ) . '</a>'
+						);
+					}
+					?>
 				</p>
 				<button id="wpsl-regeocod-btn" class="button button-secondary"
 					data-count="<?php echo intval( $stats['ungeocoded'] ); ?>"
-					<?php echo $stats['ungeocoded'] === 0 ? 'disabled' : ''; ?>>
+					<?php echo ( $stats['ungeocoded'] === 0 || empty( wpsl_csv_get_server_api_key() ) ) ? 'disabled' : ''; ?>>
 					<?php
 					/* translators: %d: number of stores without geocoding coordinates */
 					printf( esc_html__( 'Re-geocode %d store(s)', 'csv-importer-for-store-locator' ), intval( $stats['ungeocoded'] ) ); ?>
@@ -1289,7 +1385,7 @@ function wpsl_csv_get_field_definitions() {
 			'default'     => '',
 			'required'    => false,
 			'placeholder' => 'Lat',
-			'description' => __( 'Leave empty to let WPSL geocode the address automatically.', 'csv-importer-for-store-locator' ),
+			'description' => __( 'Leave empty if coordinates are not in the CSV — use the Auto-geocode option below or Re-geocode button (Manage tab) after import.', 'csv-importer-for-store-locator' ),
 		),
 		'lng'      => array(
 			'label'       => __( 'Column → Longitude', 'csv-importer-for-store-locator' ),
@@ -1514,8 +1610,9 @@ function wpsl_csv_normalize_case( array $fields ) {
 
 /**
  * @return array { inserted: int, updated: int, skipped: int, error: string }
+ * @param bool $auto_geocode Call Google Geocoding API for rows without lat/lng.
  */
-function wpsl_csv_process_row( array $fields, $duplicate_mode ) {
+function wpsl_csv_process_row( array $fields, $duplicate_mode, $auto_geocode = false ) {
 	$result = array(
 		'inserted' => 0,
 		'updated'  => 0,
@@ -1628,6 +1725,22 @@ function wpsl_csv_process_row( array $fields, $duplicate_mode ) {
 
 	if ( $category_value !== '' ) {
 		wpsl_csv_assign_category( $post_id, $category_value );
+	}
+
+	// Geocode if no lat/lng were provided and auto-geocode is enabled.
+	if ( $auto_geocode && empty( (float) str_replace( ',', '.', $fields['wpsl_lat'] ?? '' ) ) ) {
+		$address = implode( ', ', array_filter( array(
+			$fields['wpsl_address'] ?? '',
+			$fields['wpsl_city']    ?? '',
+			$fields['wpsl_state']   ?? '',
+			$fields['wpsl_zip']     ?? '',
+			$fields['wpsl_country'] ?? '',
+		) ) );
+		$latlng = wpsl_csv_geocode_address( $address );
+		if ( $latlng ) {
+			update_post_meta( $post_id, 'wpsl_lat', $latlng['lat'] );
+			update_post_meta( $post_id, 'wpsl_lng', $latlng['lng'] );
+		}
 	}
 
 	wp_publish_post( $post_id );
@@ -1963,6 +2076,7 @@ function wpsl_csv_ajax_import_init() {
 			'map'            => $map,
 			'duplicate_mode' => $duplicate_mode,
 			'normalize_case' => ! empty( $_POST['normalize_case'] ),
+			'auto_geocode'   => ! empty( $_POST['auto_geocode'] ) && ! empty( wpsl_csv_get_server_api_key() ),
 			'user_id'        => get_current_user_id(),
 			'total'          => $total,
 		),
@@ -2072,7 +2186,7 @@ function wpsl_csv_ajax_import_chunk() {
 			continue;
 		}
 
-		$row_result = wpsl_csv_process_row( $fields, $batch['duplicate_mode'] );
+		$row_result = wpsl_csv_process_row( $fields, $batch['duplicate_mode'], $batch['auto_geocode'] ?? false );
 		$inserted  += $row_result['inserted'];
 		$updated   += $row_result['updated'];
 		$skipped   += $row_result['skipped'];
@@ -2373,8 +2487,12 @@ function wpsl_csv_ajax_bulk_regeocod() {
 		wp_send_json_error( array( 'message' => __( 'Insufficient permissions.', 'csv-importer-for-store-locator' ) ) );
 	}
 
+	if ( empty( wpsl_csv_get_server_api_key() ) ) {
+		wp_send_json_error( array( 'message' => __( 'No Google API server key found in WP Store Locator settings. Please add your server key under WP Store Locator → Settings → API.', 'csv-importer-for-store-locator' ) ) );
+	}
+
 	$offset     = max( 0, intval( $_POST['offset'] ?? 0 ) );
-	$chunk_size = 5; // Small to avoid timeouts (each triggers WPSL geocoding)
+	$chunk_size = 5; // Keep small: each store makes one HTTP request to Google
 	$batch_key  = 'wpsl_regeocod_' . get_current_user_id();
 
 	if ( $offset === 0 ) {
@@ -2409,12 +2527,18 @@ function wpsl_csv_ajax_bulk_regeocod() {
 	$processed = 0;
 
 	foreach ( $chunk as $id ) {
-		delete_post_meta( (int) $id, 'wpsl_lat' );
-		delete_post_meta( (int) $id, 'wpsl_lng' );
-		$updated = wp_update_post( array( 'ID' => (int) $id, 'post_status' => 'publish' ) );
-		if ( $updated && ! is_wp_error( $updated ) ) {
-			$processed++;
+		$address = wpsl_csv_build_geocode_address( $id );
+		if ( ! empty( $address ) ) {
+			$latlng = wpsl_csv_geocode_address( $address );
+			if ( $latlng ) {
+				update_post_meta( (int) $id, 'wpsl_lat', $latlng['lat'] );
+				update_post_meta( (int) $id, 'wpsl_lng', $latlng['lng'] );
+				if ( 'publish' !== get_post_status( $id ) ) {
+					wp_update_post( array( 'ID' => (int) $id, 'post_status' => 'publish' ) );
+				}
+			}
 		}
+		$processed++;
 	}
 
 	$next_offset = $offset + $processed;
